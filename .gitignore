@@ -1,0 +1,11 @@
+# never commit tunnel configs (keys, company endpoints)
+*.conf
+
+# local working notes, never published
+CLAUDE.md
+.claude/
+
+# build artifacts
+wiretray
+wiretray.exe
+dist/
