@@ -1,104 +1,57 @@
 package main
 
 import (
-	"context"
 	"flag"
-	"fmt"
+	"io"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
-	"time"
+	"runtime"
 
-	"github.com/AntonyI1/wiretray/config"
-	"github.com/AntonyI1/wiretray/engine"
-	"github.com/AntonyI1/wiretray/proxy"
+	"github.com/AntonyI1/wiretray/tray"
 )
-
-const handshakeTimeout = 15 * time.Second
 
 func main() {
 	confPath := flag.String("config", "", "tunnel config file (default: the sole .conf in the config dir)")
-	flag.Bool("no-tray", false, "run headless without a tray icon (the tray arrives in a later phase)")
+	noTray := flag.Bool("no-tray", false, "run headless without a tray icon")
 	flag.Parse()
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	if err := run(log, *confPath); err != nil {
-		log.Error(err.Error())
-		os.Exit(1)
-	}
-}
+	log := slog.New(slog.NewTextHandler(logDest(), nil))
 
-func run(log *slog.Logger, confPath string) error {
-	if confPath == "" {
-		p, err := defaultConf()
-		if err != nil {
-			return err
+	// The tray is the product on Windows; headless serves CI, servers,
+	// and any OS where the tray has not been ported.
+	if *noTray || runtime.GOOS != "windows" {
+		if err := runHeadless(log, *confPath); err != nil {
+			log.Error(err.Error())
+			os.Exit(1)
 		}
-		confPath = p
+		return
 	}
 
-	cfg, err := config.Parse(confPath)
-	if err != nil {
-		return err
-	}
-
-	tn, err := engine.Start(cfg, log)
-	if err != nil {
-		return err
-	}
-	defer tn.Stop()
-
-	ctx, cancel := context.WithTimeout(context.Background(), handshakeTimeout)
-	err = tn.AwaitHandshake(ctx)
-	cancel()
-	if err != nil {
-		return err
-	}
-	log.Info("handshake complete")
-
-	// The listener starts only now, after the tunnel is live, and dies
-	// with it: a stopped tunnel means a refused port, never a fallback
-	// onto normal routing.
-	srv := proxy.New(tn.Net(), log)
-	if err := srv.Listen(cfg.Bind); err != nil {
-		return err
-	}
-
-	watchCtx, stopWatch := context.WithCancel(context.Background())
-	defer stopWatch()
-	go tn.Watch(watchCtx)
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-stop
-		log.Info("shutting down")
-		srv.Close()
-	}()
-
-	return srv.Serve()
+	tray.Run(tray.Options{ConfPath: *confPath, Log: log})
 }
 
-// defaultConf finds the config to run when -config is not given: the
-// single .conf under the user config dir, with a helpful error otherwise.
-func defaultConf() (string, error) {
-	dir, err := os.UserConfigDir()
+// logDest writes to stderr and a file under the config dir, so the tray
+// build (which has no console) still leaves a trail. The file restarts
+// once it passes 5MB; no rotation machinery.
+func logDest() io.Writer {
+	base, err := os.UserConfigDir()
 	if err != nil {
-		return "", err
+		return os.Stderr
 	}
-	confDir := filepath.Join(dir, "wiretray", "configs")
-	matches, err := filepath.Glob(filepath.Join(confDir, "*.conf"))
+	dir := filepath.Join(base, "wiretray")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return os.Stderr
+	}
+
+	path := filepath.Join(dir, "wiretray.log")
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	if st, err := os.Stat(path); err == nil && st.Size() > 5<<20 {
+		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	}
+	f, err := os.OpenFile(path, flags, 0o600)
 	if err != nil {
-		return "", err
+		return os.Stderr
 	}
-	switch len(matches) {
-	case 0:
-		return "", fmt.Errorf("no configs found, put one in %s", confDir)
-	case 1:
-		return matches[0], nil
-	default:
-		return "", fmt.Errorf("multiple configs in %s, pick one with -config", confDir)
-	}
+	return io.MultiWriter(os.Stderr, f)
 }
