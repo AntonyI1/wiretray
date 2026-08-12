@@ -22,21 +22,29 @@ import (
 type Tunnel struct {
 	dev  *device.Device
 	tnet *netstack.Net
+	cfg  *config.Config
 	log  *slog.Logger
 
 	stopOnce sync.Once
 }
 
+// resolveEndpoint turns the config's host:port into IP:port using the
+// system resolver on purpose: outer packets travel normal networking.
+func resolveEndpoint(endpoint string) (netip.AddrPort, error) {
+	ua, err := net.ResolveUDPAddr("udp", endpoint)
+	if err != nil {
+		return netip.AddrPort{}, fmt.Errorf("resolve endpoint %s: %w", endpoint, err)
+	}
+	return netip.AddrPortFrom(ua.AddrPort().Addr().Unmap(), ua.AddrPort().Port()), nil
+}
+
 // Start brings the device up and returns without waiting for the peer;
 // use AwaitHandshake to block until the tunnel is actually live.
 func Start(cfg *config.Config, log *slog.Logger) (*Tunnel, error) {
-	// The endpoint resolves on the system resolver by design: the
-	// encrypted outer packets must travel over normal networking.
-	ua, err := net.ResolveUDPAddr("udp", cfg.Peer.Endpoint)
+	endpoint, err := resolveEndpoint(cfg.Peer.Endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("resolve endpoint %s: %w", cfg.Peer.Endpoint, err)
+		return nil, err
 	}
-	endpoint := netip.AddrPortFrom(ua.AddrPort().Addr().Unmap(), ua.AddrPort().Port())
 
 	uapi, err := cfg.UAPI(endpoint)
 	if err != nil {
@@ -59,7 +67,7 @@ func Start(cfg *config.Config, log *slog.Logger) (*Tunnel, error) {
 	}
 
 	log.Info("tunnel up", "endpoint", endpoint.String(), "address", cfg.Address.String())
-	return &Tunnel{dev: dev, tnet: tnet, log: log}, nil
+	return &Tunnel{dev: dev, tnet: tnet, cfg: cfg, log: log}, nil
 }
 
 // Net exposes the tunnel's network stack. Connections dialed through it

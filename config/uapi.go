@@ -40,3 +40,14 @@ func (c *Config) UAPI(endpoint netip.AddrPort) (string, error) {
 	}
 	return b.String(), nil
 }
+
+// EndpointUAPI renders the minimal fragment that moves the existing peer
+// to a new endpoint without touching anything else. update_only guards
+// against accidentally creating a second peer.
+func (c *Config) EndpointUAPI(endpoint netip.AddrPort) (string, error) {
+	pub, err := keyToHex(c.Peer.PublicKey)
+	if err != nil {
+		return "", fmt.Errorf("PublicKey: %w", err)
+	}
+	return fmt.Sprintf("public_key=%s\nupdate_only=true\nendpoint=%s\n", pub, endpoint), nil
+}

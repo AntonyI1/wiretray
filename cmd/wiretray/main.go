@@ -66,6 +66,10 @@ func run(log *slog.Logger, confPath string) error {
 		return err
 	}
 
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	go tn.Watch(watchCtx)
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	go func() {

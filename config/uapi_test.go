@@ -61,6 +61,22 @@ func TestUAPIPresharedAndNoKeepalive(t *testing.T) {
 	}
 }
 
+func TestEndpointUAPI(t *testing.T) {
+	cfg := &Config{
+		Peer: Peer{PublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="},
+	}
+	got, err := cfg.EndpointUAPI(netip.MustParseAddrPort("198.51.100.7:51820"))
+	if err != nil {
+		t.Fatalf("EndpointUAPI: %v", err)
+	}
+	want := "public_key=0000000000000000000000000000000000000000000000000000000000000000\n" +
+		"update_only=true\n" +
+		"endpoint=198.51.100.7:51820\n"
+	if got != want {
+		t.Errorf("EndpointUAPI mismatch\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestUAPIBadKey(t *testing.T) {
 	cfg := &Config{
 		PrivateKey: "not a key",
