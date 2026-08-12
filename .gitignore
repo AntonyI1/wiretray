@@ -5,7 +5,7 @@
 CLAUDE.md
 .claude/
 
-# build artifacts
-wiretray
-wiretray.exe
-dist/
+# build artifacts (anchored so cmd/wiretray/ stays tracked)
+/wiretray
+/wiretray.exe
+/dist/
