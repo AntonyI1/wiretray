@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 
 	"github.com/things-go/go-socks5"
 	"golang.zx2c4.com/wireguard/tun/netstack"
@@ -69,9 +70,34 @@ func (s *Server) Close() error {
 	return s.ln.Close()
 }
 
-// s5log adapts slog to the socks5 library's logger interface.
+// s5log adapts slog to the socks5 library's logger interface. Ordinary
+// connection churn is demoted to debug so the log only shouts about
+// problems that need a human.
 type s5log struct{ log *slog.Logger }
 
 func (l s5log) Errorf(format string, args ...interface{}) {
-	l.log.Error(fmt.Sprintf(format, args...))
+	msg := fmt.Sprintf(format, args...)
+	if benignTeardown(msg) {
+		l.log.Debug(msg)
+		return
+	}
+	l.log.Error(msg)
+}
+
+// benignTeardown reports whether a relay error is normal connection
+// teardown. Browsers abort SOCKS streams all the time (closed tabs,
+// cancelled preloads), and each surfaces as a read or write error.
+func benignTeardown(msg string) bool {
+	for _, s := range []string{
+		"connection was aborted",
+		"forcibly closed by the remote host",
+		"connection reset by peer",
+		"broken pipe",
+		"use of closed network connection",
+	} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
 }
