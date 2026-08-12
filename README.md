@@ -6,4 +6,4 @@ I run Tailscale for my home network and a company WireGuard VPN for work. Both w
 
 No network interface. No routes. No admin rights. Nothing for the two VPNs to fight over.
 
-Status: design phase. The design is in [docs/design.md](docs/design.md).
+Status: the headless core works and carries real browsing today; the tray UI is next. The design is in [docs/design.md](docs/design.md).
