@@ -24,57 +24,58 @@ const blobSize = 16 << 20
 
 var blob = make([]byte, blobSize)
 
-// benchPair stands up the full stack once: server peer, live tunnel,
+// pairUp stands up the full stack once: server peer, live tunnel,
 // SOCKS proxy, and an HTTP client that dials through it.
-func benchPair(b *testing.B) *http.Client {
-	b.Helper()
+func pairUp(t testing.TB) (*engine.Tunnel, *http.Client) {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	serverKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
 	clientKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
 
-	port := startServerPeer(b, serverKey, clientKey)
+	port := startServerPeer(t, serverKey, clientKey)
 
 	tn, err := engine.Start(testClientConfig(clientKey, serverKey, port), log)
 	if err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
-	b.Cleanup(tn.Stop)
+	t.Cleanup(tn.Stop)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := tn.AwaitHandshake(ctx); err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
 
 	srv := proxy.New(tn.Net(), log)
 	if err := srv.Listen("127.0.0.1:0"); err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
-	b.Cleanup(func() { srv.Close() })
+	t.Cleanup(func() { srv.Close() })
 	go func() { _ = srv.Serve() }()
 
 	dialer, err := xproxy.SOCKS5("tcp", srv.Addr().String(), nil, xproxy.Direct)
 	if err != nil {
-		b.Fatal(err)
+		t.Fatal(err)
 	}
-	return &http.Client{
+	client := &http.Client{
 		Transport: &http.Transport{DialContext: dialer.(xproxy.ContextDialer).DialContext},
 		Timeout:   30 * time.Second,
 	}
+	return tn, client
 }
 
 // BenchmarkThroughput streams 16MB downloads through the entire path:
 // SOCKS server, netstack TCP, WireGuard encryption, loopback UDP, and
 // back up the far side's stack. The MB/s column is the headline number.
 func BenchmarkThroughput(b *testing.B) {
-	client := benchPair(b)
+	_, client := pairUp(b)
 
 	b.SetBytes(blobSize)
 	b.ResetTimer()
