@@ -48,18 +48,7 @@ func TestEndToEnd(t *testing.T) {
 
 	startServerPeer(t, serverKey, clientKey)
 
-	cfg := &config.Config{
-		PrivateKey: base64.StdEncoding.EncodeToString(clientKey.Bytes()),
-		Address:    netip.MustParseAddr(clientAddr),
-		MTU:        1420,
-		Bind:       "127.0.0.1:0",
-		Peer: config.Peer{
-			PublicKey:  base64.StdEncoding.EncodeToString(serverKey.PublicKey().Bytes()),
-			Endpoint:   fmt.Sprintf("127.0.0.1:%d", serverPort),
-			AllowedIPs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
-			Keepalive:  25, // sends immediately on up, which triggers the handshake
-		},
-	}
+	cfg := testClientConfig(clientKey, serverKey)
 
 	tn, err := engine.Start(cfg, log)
 	if err != nil {
@@ -124,7 +113,9 @@ func TestEndToEnd(t *testing.T) {
 
 // startServerPeer brings up the far side of the tunnel: a raw
 // wireguard-go device on its own netstack with an HTTP server inside.
-func startServerPeer(t *testing.T, serverKey, clientKey *ecdh.PrivateKey) {
+// It serves the hello body at / and blobSize zero bytes at /blob for
+// the throughput benchmark.
+func startServerPeer(t testing.TB, serverKey, clientKey *ecdh.PrivateKey) {
 	t.Helper()
 
 	tun, tnet, err := netstack.CreateNetTUN(
@@ -152,9 +143,29 @@ func startServerPeer(t *testing.T, serverKey, clientKey *ecdh.PrivateKey) {
 	}
 	t.Cleanup(func() { ln.Close() })
 
-	go func() {
-		_ = http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			io.WriteString(w, body)
-		}))
-	}()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		io.WriteString(w, body)
+	})
+	mux.HandleFunc("/blob", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(blob)
+	})
+	go func() { _ = http.Serve(ln, mux) }()
+}
+
+// testClientConfig is the client side of the test pair, pointed at the
+// in-process server peer.
+func testClientConfig(clientKey, serverKey *ecdh.PrivateKey) *config.Config {
+	return &config.Config{
+		PrivateKey: base64.StdEncoding.EncodeToString(clientKey.Bytes()),
+		Address:    netip.MustParseAddr(clientAddr),
+		MTU:        1420,
+		Bind:       "127.0.0.1:0",
+		Peer: config.Peer{
+			PublicKey:  base64.StdEncoding.EncodeToString(serverKey.PublicKey().Bytes()),
+			Endpoint:   fmt.Sprintf("127.0.0.1:%d", serverPort),
+			AllowedIPs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
+			Keepalive:  25,
+		},
+	}
 }

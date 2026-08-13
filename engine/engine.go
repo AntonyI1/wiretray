@@ -78,7 +78,8 @@ func (t *Tunnel) Net() *netstack.Net { return t.tnet }
 // gives up. A tunnel that never handshakes usually means wrong keys,
 // wrong endpoint, or blocked UDP.
 func (t *Tunnel) AwaitHandshake(ctx context.Context) error {
-	tick := time.NewTicker(500 * time.Millisecond)
+	// 25ms keeps toggle-to-live snappy; IpcGet is cheap enough to poll.
+	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		st, err := t.Status()
