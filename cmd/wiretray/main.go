@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -11,10 +12,19 @@ import (
 	"github.com/AntonyI1/wiretray/tray"
 )
 
+// version is stamped at release time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	confPath := flag.String("config", "", "tunnel config file (default: the sole .conf in the config dir)")
 	noTray := flag.Bool("no-tray", false, "run headless without a tray icon")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("wiretray " + version)
+		return
+	}
 
 	log := slog.New(slog.NewTextHandler(logDest(), nil))
 
