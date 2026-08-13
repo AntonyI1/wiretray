@@ -71,7 +71,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("handshake reported done but LastHandshake is zero")
 	}
 
-	srv := proxy.New(tn.Net(), log)
+	srv := proxy.New(proxy.NetstackBackend(tn.Net()), log)
 	if err := srv.Listen(cfg.Bind); err != nil {
 		t.Fatalf("Listen: %v", err)
 	}

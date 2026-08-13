@@ -63,5 +63,13 @@ func logDest() io.Writer {
 	if err != nil {
 		return os.Stderr
 	}
-	return io.MultiWriter(os.Stderr, f)
+
+	captureStderr(f)
+	if os.Stderr == f {
+		// windowed build: no console exists, the file is everything
+		return f
+	}
+	// The file writes first: MultiWriter stops at the first error, and
+	// a dead stderr must not be able to silence the file.
+	return io.MultiWriter(f, os.Stderr)
 }

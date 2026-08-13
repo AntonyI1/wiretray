@@ -10,8 +10,12 @@ import (
 )
 
 const (
-	defaultMTU  = 1420
-	defaultBind = "127.0.0.1:25344"
+	defaultMTU = 1420
+
+	// DefaultBind is where the SOCKS listener sits when a config does
+	// not say otherwise; exported because the tray needs it when no
+	// config is selected yet.
+	DefaultBind = "127.0.0.1:25344"
 )
 
 // Parse reads a wg-quick style .conf with an added [Socks5] section.
@@ -32,7 +36,7 @@ func Parse(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: missing [Peer] section", path)
 	}
 
-	cfg := &Config{MTU: defaultMTU, Bind: defaultBind}
+	cfg := &Config{MTU: defaultMTU, Bind: DefaultBind}
 
 	if cfg.PrivateKey, err = requiredKey(iface, "PrivateKey"); err != nil {
 		return nil, err

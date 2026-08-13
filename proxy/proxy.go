@@ -1,31 +1,78 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"strings"
+	"sync/atomic"
 
 	"github.com/things-go/go-socks5"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
 
-// Server is the SOCKS5 front door. Every connection it accepts is dialed
-// inside the tunnel's network stack, never through the OS.
-type Server struct {
-	s5  *socks5.Server
-	ln  net.Listener
-	log *slog.Logger
+// Backend is where the proxy sends traffic: the tunnel's network stack,
+// or the operating system directly when fallback mode allows it.
+type Backend struct {
+	Dial    func(ctx context.Context, network, addr string) (net.Conn, error)
+	Resolve hostLookup
 }
 
-func New(tnet *netstack.Net, log *slog.Logger) *Server {
-	s5 := socks5.NewServer(
-		socks5.WithDial(tnet.DialContext),
-		socks5.WithResolver(resolver{tnet}),
+// NetstackBackend routes everything inside the tunnel.
+func NetstackBackend(tnet *netstack.Net) Backend {
+	return Backend{Dial: tnet.DialContext, Resolve: tnet}
+}
+
+// DirectBackend routes over the normal network: no tunnel involved.
+// Only fallback mode uses it, and only by explicit user choice.
+func DirectBackend() Backend {
+	var d net.Dialer
+	return Backend{Dial: d.DialContext, Resolve: directLookup{}}
+}
+
+type directLookup struct{}
+
+func (directLookup) LookupContextHost(ctx context.Context, host string) ([]string, error) {
+	return net.DefaultResolver.LookupHost(ctx, host)
+}
+
+// Server is the SOCKS5 front door. Connections go wherever the active
+// backend points; the backend can be swapped while serving.
+type Server struct {
+	s5      *socks5.Server
+	ln      net.Listener
+	log     *slog.Logger
+	backend atomic.Pointer[Backend]
+}
+
+func New(initial Backend, log *slog.Logger) *Server {
+	s := &Server{log: log}
+	s.backend.Store(&initial)
+	s.s5 = socks5.NewServer(
+		socks5.WithDial(s.dial),
+		socks5.WithResolver(resolver{serverLookup{s}}),
 		socks5.WithLogger(s5log{log}),
 	)
-	return &Server{s5: s5, log: log}
+	return s
+}
+
+// SetBackend atomically redirects where new connections go. In-flight
+// streams keep the backend they started with.
+func (s *Server) SetBackend(b Backend) {
+	s.backend.Store(&b)
+}
+
+func (s *Server) dial(ctx context.Context, network, addr string) (net.Conn, error) {
+	return s.backend.Load().Dial(ctx, network, addr)
+}
+
+// serverLookup resolves through whatever backend is active right now.
+type serverLookup struct{ s *Server }
+
+func (l serverLookup) LookupContextHost(ctx context.Context, host string) ([]string, error) {
+	return l.s.backend.Load().Resolve.LookupContextHost(ctx, host)
 }
 
 // Listen binds the SOCKS port. Split from Serve so bind errors surface
@@ -61,8 +108,7 @@ func (s *Server) Serve() error {
 	return nil
 }
 
-// Close stops the listener. In-flight streams die with the tunnel, which
-// is torn down right after; fail-closed is the point.
+// Close stops the listener.
 func (s *Server) Close() error {
 	if s.ln == nil {
 		return nil
@@ -94,6 +140,7 @@ func benignTeardown(msg string) bool {
 		"connection reset by peer",
 		"broken pipe",
 		"use of closed network connection",
+		"EOF",
 	} {
 		if strings.Contains(msg, s) {
 			return true

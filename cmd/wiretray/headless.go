@@ -48,7 +48,7 @@ func runHeadless(log *slog.Logger, confPath string) error {
 	// The listener starts only now, after the tunnel is live, and dies
 	// with it: a stopped tunnel means a refused port, never a fallback
 	// onto normal routing.
-	srv := proxy.New(tn.Net(), log)
+	srv := proxy.New(proxy.NetstackBackend(tn.Net()), log)
 	if err := srv.Listen(cfg.Bind); err != nil {
 		return err
 	}

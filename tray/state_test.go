@@ -2,15 +2,16 @@ package tray
 
 import "testing"
 
-func TestSelectedRoundTrip(t *testing.T) {
+func TestStateRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 
-	if got := loadSelected(dir); got != "" {
-		t.Errorf("fresh dir: loadSelected = %q, want empty", got)
+	if got := loadState(dir); got != (persisted{}) {
+		t.Errorf("fresh dir: loadState = %+v, want zero", got)
 	}
 
-	saveSelected(dir, `C:\somewhere\work.conf`)
-	if got := loadSelected(dir); got != `C:\somewhere\work.conf` {
-		t.Errorf("loadSelected = %q after save", got)
+	want := persisted{Config: `C:\somewhere\work.conf`, Fallback: true}
+	saveState(dir, want)
+	if got := loadState(dir); got != want {
+		t.Errorf("loadState = %+v after save, want %+v", got, want)
 	}
 }

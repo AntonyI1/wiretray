@@ -15,3 +15,6 @@ var iconConnected []byte
 
 //go:embed icons/error.ico
 var iconError []byte
+
+//go:embed icons/fallback.ico
+var iconFallback []byte

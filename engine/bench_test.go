@@ -53,7 +53,7 @@ func pairUp(t testing.TB) (*engine.Tunnel, *http.Client) {
 		t.Fatal(err)
 	}
 
-	srv := proxy.New(tn.Net(), log)
+	srv := proxy.New(proxy.NetstackBackend(tn.Net()), log)
 	if err := srv.Listen("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}

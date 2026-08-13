@@ -17,6 +17,7 @@ func TestBenignTeardown(t *testing.T) {
 		{"write tcp: broken pipe", true},
 		{"accept tcp: use of closed network connection", true},
 		{"wsarecv: An existing connection was forcibly closed by the remote host.", true},
+		{"server: EOF", true},
 		{"resolve intranet.example: no such host", false},
 		{"bind 127.0.0.1:25344: address already in use", false},
 	}

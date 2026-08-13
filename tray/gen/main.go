@@ -26,9 +26,9 @@ type spot struct {
 	stem    bool // lights up first while connecting
 }
 
-// The dots sit at the density Tailscale's tray icon uses (radius 0.10
-// of the canvas, centers 0.30 or more apart), which is what reads
-// calmly in a Windows tray. The arrangement is ours: a path forking.
+// The dots sit at a density that reads calmly next to the other icons
+// in a Windows tray: radius 0.10 of the canvas, centers 0.30 or more
+// apart, so the gap between dots is always at least a full radius.
 var lattice = []spot{
 	{0.20, 0.50, 0.10, true},
 	{0.50, 0.50, 0.10, true},
@@ -45,6 +45,7 @@ var (
 	dim   = color.NRGBA{R: 0x8a, G: 0x8a, B: 0x8a, A: 0xb4}
 	red   = color.NRGBA{R: 0xd9, G: 0x50, B: 0x44, A: 0xff}
 	green = color.NRGBA{R: 0x2f, G: 0xa0, B: 0x5a, A: 0xff}
+	blue  = color.NRGBA{R: 0x3f, G: 0x8c, B: 0xd9, A: 0xff}
 )
 
 var states = map[string]palette{
@@ -52,6 +53,9 @@ var states = map[string]palette{
 	"connecting":   {stem: lit, branch: dim},
 	"connected":    {stem: lit, branch: lit},
 	"error":        {stem: red, branch: red},
+	// fallback: the port is open but traffic goes DIRECT, not tunneled;
+	// blue so it can never be mistaken for connected or plain off.
+	"fallback": {stem: blue, branch: blue},
 }
 
 func main() {
