@@ -27,7 +27,8 @@ wireproxy already proves the userspace approach and WireTray keeps its config fo
 - SOCKS5 on loopback only by default. Widening the bind is always an explicit config act.
 - Plaintext wg-quick-compatible configs under the user config dir. No keychain integration.
 - One active tunnel at a time, chosen from a picker. Simultaneous tunnels are out of scope.
-- Fail-closed by design: the SOCKS listener exists only while the tunnel is up. App not running or tunnel down means connection refused, never a silent fallback onto normal routing.
+- Fail-closed by design: with the app in its default posture, the SOCKS listener exists only while the tunnel is up. App not running or tunnel down means connection refused, never a silent fallback onto normal routing.
+- Direct fallback is the one deliberate exception: an off-by-default tray toggle that keeps the port open when the tunnel is down and routes over the normal network. It exists for always-on proxy setups (a permanently exported ALL_PROXY, a dedicated profile browsing public sites offline from the VPN). While active the tray shows a blue state that cannot be mistaken for connected, because the entire risk of the mode is forgetting it is on.
 
 ## Architecture
 
@@ -37,7 +38,7 @@ Five units, one job each:
 |---|---|---|
 | `config` | Parse wg-quick-format `.conf` plus `[Socks5]` section into a typed Config; base64 to hex key conversion; UAPI string building; validation | stdlib, ini |
 | `engine` | Own wireguard-go device and netstack lifecycle: `Start(cfg)`, `Stop()`, `Status()`; expose the netstack `tnet` for dialing | wireguard-go, netstack |
-| `proxy` | SOCKS5 server; dialer and resolver both injected from the engine's netstack; lifecycle tied to tunnel state | go-socks5 |
+| `proxy` | SOCKS5 server; dialer and resolver come from a swappable backend (the engine's netstack, or the OS directly in fallback mode) | go-socks5 |
 | `tray` | systray UI: states, toggle, config picker, last-handshake display; autostart registration (build-tagged per OS) | fyne systray |
 | `cmd/wiretray` | Wiring, logging, `--no-tray` headless mode | all above |
 
@@ -64,7 +65,7 @@ The resolver injection is mandatory, not optional. go-socks5's default resolver 
 
 ## States and error handling
 
-`disconnected -> connecting -> connected -> error`
+`disconnected -> connecting -> connected -> error`, plus `fallback` (blue): the port is open but traffic goes direct because the user enabled the fallback toggle and the tunnel is down.
 
 - **connecting:** after `IpcSet` and `Up`, poll `IpcGet` for `last_handshake_time_sec` every 500ms. The first nonzero value means connected. 15 seconds without one means error ("no handshake: check keys, endpoint, UDP reachability"). A wrong key encoding otherwise fails silently; this timeout makes it visible.
 - **connected:** poll every 10s. Handshake age over 180s shows a stale note in the tooltip. The state stays connected because WireGuard rekeys lazily.
@@ -108,6 +109,17 @@ First run with no configs: the tray shows disconnected with a "no configs found,
 ## Non-goals
 
 Kernel interface mode (the whole point is not touching routing). ICMP and raw sockets (not proxyable; use namespaces if needed). UDP ASSOCIATE, for now (a browser over SOCKS needs TCP plus proxied DNS only). Simultaneous multi-tunnel. Server-side WireGuard. Keychain integration. An installer.
+
+## The panel (planned)
+
+Field testing exposed a Windows reality: icon repaints race the native
+tray menu and the overflow flyout, and the taskbar sometimes dismisses
+them when a repaint lands. The function is unaffected, but the feel falls
+short of the smoothest tray apps, which avoid the game entirely by
+using their own popup window instead of a native menu. WireTray follows:
+the next major version replaces the menu with a small panel window
+(status, connect, tunnel picker, toggles), keeping a minimal native menu
+on right-click. The tray icon and its states stay exactly as they are.
 
 ## Operational caveats
 
