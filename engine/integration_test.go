@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,7 +28,6 @@ import (
 const (
 	serverAddr = "10.0.0.1"
 	clientAddr = "10.0.0.2"
-	serverPort = 51999 // fixed loopback UDP port for the test peer
 	body       = "hello from inside the tunnel"
 )
 
@@ -46,9 +47,9 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	startServerPeer(t, serverKey, clientKey)
+	port := startServerPeer(t, serverKey, clientKey)
 
-	cfg := testClientConfig(clientKey, serverKey)
+	cfg := testClientConfig(clientKey, serverKey, port)
 
 	tn, err := engine.Start(cfg, log)
 	if err != nil {
@@ -113,9 +114,10 @@ func TestEndToEnd(t *testing.T) {
 
 // startServerPeer brings up the far side of the tunnel: a raw
 // wireguard-go device on its own netstack with an HTTP server inside.
-// It serves the hello body at / and blobSize zero bytes at /blob for
-// the throughput benchmark.
-func startServerPeer(t testing.TB, serverKey, clientKey *ecdh.PrivateKey) {
+// It binds an ephemeral UDP port and returns it, so parallel runs never
+// collide. It serves the hello body at / and blobSize zero bytes at
+// /blob for the throughput benchmark.
+func startServerPeer(t testing.TB, serverKey, clientKey *ecdh.PrivateKey) int {
 	t.Helper()
 
 	tun, tnet, err := netstack.CreateNetTUN(
@@ -127,8 +129,8 @@ func startServerPeer(t testing.TB, serverKey, clientKey *ecdh.PrivateKey) {
 	dev := device.NewDevice(tun, conn.NewDefaultBind(),
 		device.NewLogger(device.LogLevelError, "server: "))
 	uapi := fmt.Sprintf(
-		"private_key=%x\nlisten_port=%d\npublic_key=%x\nallowed_ip=%s/32\n",
-		serverKey.Bytes(), serverPort, clientKey.PublicKey().Bytes(), clientAddr)
+		"private_key=%x\nlisten_port=0\npublic_key=%x\nallowed_ip=%s/32\n",
+		serverKey.Bytes(), clientKey.PublicKey().Bytes(), clientAddr)
 	if err := dev.IpcSet(uapi); err != nil {
 		t.Fatalf("server IpcSet: %v", err)
 	}
@@ -136,6 +138,22 @@ func startServerPeer(t testing.TB, serverKey, clientKey *ecdh.PrivateKey) {
 		t.Fatalf("server Up: %v", err)
 	}
 	t.Cleanup(dev.Close)
+
+	port := 0
+	dump, err := dev.IpcGet()
+	if err != nil {
+		t.Fatalf("server IpcGet: %v", err)
+	}
+	for _, line := range strings.Split(dump, "\n") {
+		if v, ok := strings.CutPrefix(line, "listen_port="); ok {
+			if port, err = strconv.Atoi(v); err != nil {
+				t.Fatalf("parse listen_port %q: %v", v, err)
+			}
+		}
+	}
+	if port == 0 {
+		t.Fatal("server device reported no listen port")
+	}
 
 	ln, err := tnet.ListenTCPAddrPort(netip.AddrPortFrom(netip.MustParseAddr(serverAddr), 80))
 	if err != nil {
@@ -151,11 +169,12 @@ func startServerPeer(t testing.TB, serverKey, clientKey *ecdh.PrivateKey) {
 		_, _ = w.Write(blob)
 	})
 	go func() { _ = http.Serve(ln, mux) }()
+	return port
 }
 
 // testClientConfig is the client side of the test pair, pointed at the
 // in-process server peer.
-func testClientConfig(clientKey, serverKey *ecdh.PrivateKey) *config.Config {
+func testClientConfig(clientKey, serverKey *ecdh.PrivateKey, port int) *config.Config {
 	return &config.Config{
 		PrivateKey: base64.StdEncoding.EncodeToString(clientKey.Bytes()),
 		Address:    netip.MustParseAddr(clientAddr),
@@ -163,7 +182,7 @@ func testClientConfig(clientKey, serverKey *ecdh.PrivateKey) *config.Config {
 		Bind:       "127.0.0.1:0",
 		Peer: config.Peer{
 			PublicKey:  base64.StdEncoding.EncodeToString(serverKey.PublicKey().Bytes()),
-			Endpoint:   fmt.Sprintf("127.0.0.1:%d", serverPort),
+			Endpoint:   fmt.Sprintf("127.0.0.1:%d", port),
 			AllowedIPs: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")},
 			Keepalive:  25,
 		},

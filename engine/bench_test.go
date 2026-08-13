@@ -39,9 +39,9 @@ func benchPair(b *testing.B) *http.Client {
 		b.Fatal(err)
 	}
 
-	startServerPeer(b, serverKey, clientKey)
+	port := startServerPeer(b, serverKey, clientKey)
 
-	tn, err := engine.Start(testClientConfig(clientKey, serverKey), log)
+	tn, err := engine.Start(testClientConfig(clientKey, serverKey, port), log)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -108,8 +108,8 @@ func BenchmarkConnect(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	startServerPeer(b, serverKey, clientKey)
-	cfg := testClientConfig(clientKey, serverKey)
+	port := startServerPeer(b, serverKey, clientKey)
+	cfg := testClientConfig(clientKey, serverKey, port)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
