@@ -94,21 +94,24 @@ Then run `wsl --shutdown` from PowerShell and reopen your terminal. After that t
 
 With direct fallback enabled you can even leave `ALL_PROXY` exported permanently: work traffic tunnels when connected, and everything degrades to your normal network instead of breaking when the tunnel is off.
 
-## Measured behavior
+## Performance
 
-All numbers come from the in-repo harness, which runs both tunnel endpoints inside one process over loopback: every byte crosses two complete userspace stacks, and no physical network is involved. Reproduce with:
+Numbers from the in-repo harness, which runs both tunnel endpoints inside one process over loopback: every byte crosses two complete userspace stacks, and no physical network is involved. Reproduce them yourself:
 
 ```
 go test ./engine -bench . -benchtime=5s -count=3 -run '^$'
 WIRETRAY_SOAK=1 go test ./engine -run TestSoak -v -timeout 20m
 ```
 
-On an i9-14900HX under WSL2:
+Measured on an i9-14900HX under WSL2:
 
-- Throughput settles around 80 to 90 MB/s once warm, through SOCKS5, gVisor TCP, and WireGuard encryption on both sides. One side alone does roughly double, so a real VPN link is the bottleneck long before this stack is.
-- Connecting takes about 49ms from start to completed handshake, stable across hundreds of cycles.
-- A ten minute soak under continuous requests: 120 of 120 succeeded, the handshake never aged past a normal rekey interval, and the goroutine count stayed flat.
-- The deployed app idles under 40MB while connected. The binary is a single static 12MB exe with no runtime dependencies.
+**Throughput: about 85 MB/s (roughly 680 Mbps), with the harness paying the encryption and TCP cost twice.** Both tunnel endpoints run in one process, so a single side does about double. Either figure sits above what a typical VPN server delivers, which makes the link the practical limit, not the stack.
+
+**Connect: about 49ms from toggle to completed handshake.** That covers resolving the endpoint, one Noise handshake round trip, and the status poll noticing, and it held steady across hundreds of cycles.
+
+**Reliability: ten minutes of continuous requests, 120 of 120 succeeded.** The soak spans five WireGuard key renegotiations with no failed requests and no stale handshakes, and the goroutine count stayed flat from start to finish.
+
+**Footprint: 40 to 60MB of memory while connected, near zero idle CPU.** Quiet operation is one keepalive packet every 25 seconds. The application is a single static 12MB exe: no installer, no services, no drivers.
 
 ## What it will not do
 
