@@ -110,16 +110,16 @@ First run with no configs: the tray shows disconnected with a "no configs found,
 
 Kernel interface mode (the whole point is not touching routing). ICMP and raw sockets (not proxyable; use namespaces if needed). UDP ASSOCIATE, for now (a browser over SOCKS needs TCP plus proxied DNS only). Simultaneous multi-tunnel. Server-side WireGuard. Keychain integration. An installer.
 
-## The panel (planned)
+## Menu behavior
 
-Field testing exposed a Windows reality: icon repaints race the native
-tray menu and the overflow flyout, and the taskbar sometimes dismisses
-them when a repaint lands. The function is unaffected, but the feel falls
-short of the smoothest tray apps, which avoid the game entirely by
-using their own popup window instead of a native menu. WireTray follows:
-the next major version replaces the menu with a small panel window
-(status, connect, tunnel picker, toggles), keeping a minimal native menu
-on right-click. The tray icon and its states stay exactly as they are.
+Field testing exposed a Windows reality: the tray library's menu does
+not close when an item is clicked, which is nonstandard, and a menu left
+open can then be dismissed by unrelated icon repaints at random moments.
+WireTray restores standard semantics itself: every item click first ends
+menu mode synchronously (targeting its own tray window by process id,
+since all apps built on the same library share a window class), and only
+then applies the action and any repaint. Click, close, act, recolor,
+deterministically.
 
 ## Operational caveats
 

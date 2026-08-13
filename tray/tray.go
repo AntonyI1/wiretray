@@ -146,6 +146,21 @@ func (a *app) ready() {
 		a.mToggle.Disable()
 	}
 
+	// Left-click connects when the tunnel is down; while it is up the
+	// handler is removed (see applyTapPolicy) so a left-click opens the
+	// menu exactly like a right-click, and a stray click can never
+	// disconnect you. The handler runs on the systray thread, so it
+	// only pokes the event loop. It MUST exist before the first
+	// setState below: applyTapPolicy dedupes by policy, so a handler
+	// installed as nil would never be repaired.
+	clickCh := make(chan struct{}, 1)
+	a.tap = func() {
+		select {
+		case clickCh <- struct{}{}:
+		default:
+		}
+	}
+
 	// Initial posture: fallback opens the port immediately if allowed.
 	if a.fallback {
 		a.enterFallback()
@@ -154,20 +169,6 @@ func (a *app) ready() {
 	} else {
 		a.setState(stateDisconnected, "Disconnected")
 	}
-
-	// Left-click connects when the tunnel is down; while it is up the
-	// handler is removed (see applyTapPolicy) so a left-click opens the
-	// menu exactly like a right-click, and a stray click can never
-	// disconnect you. The handler runs on the systray thread, so it
-	// only pokes the event loop.
-	clickCh := make(chan struct{}, 1)
-	a.tap = func() {
-		select {
-		case clickCh <- struct{}{}:
-		default:
-		}
-	}
-	a.applyTapPolicy()
 
 	go a.loop(clickCh, pickCh, mFolder, mQuit)
 }
@@ -212,6 +213,7 @@ func (a *app) loop(clickCh chan struct{}, pickCh chan string, mFolder, mQuit *sy
 			// connected or connecting: a left-click does nothing
 
 		case <-a.mToggle.ClickedCh:
+			closeActiveMenu()
 			switch a.st {
 			case stateConnected:
 				a.disconnect()
@@ -224,15 +226,19 @@ func (a *app) loop(clickCh chan struct{}, pickCh chan string, mFolder, mQuit *sy
 			a.finishConnect(r)
 
 		case p := <-pickCh:
+			closeActiveMenu()
 			a.selectConf(p)
 
 		case <-mFolder.ClickedCh:
+			closeActiveMenu()
 			openFolder(a.confDir)
 
 		case <-a.mFallback.ClickedCh:
+			closeActiveMenu()
 			a.toggleFallback()
 
 		case <-a.mAuto.ClickedCh:
+			closeActiveMenu()
 			a.toggleAutostart()
 
 		case <-tick.C:
